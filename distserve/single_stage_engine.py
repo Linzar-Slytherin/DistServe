@@ -165,7 +165,11 @@ class SingleStageLLMEngine(ABC):
                 tmp_parallel_config = copy.deepcopy(self.parallel_config)
                 tmp_parallel_config.pipeline_parallel_rank = i
                 tmp_parallel_config.tensor_parallel_rank = j
-                worker = ParaWorker.remote(
+                worker = ParaWorker.options(
+                    scheduling_strategy=PlacementGroupSchedulingStrategy(
+                        placement_group=cur_placement_group
+                    )
+                ).remote(
                     worker_id=(i*self.parallel_config.tensor_parallel_size+j),
                     stage=self.stage,
                     model_config=self.model_config,
