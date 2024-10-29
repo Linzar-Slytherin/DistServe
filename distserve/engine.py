@@ -270,10 +270,14 @@ class LLMEngine:
         """
         logger.info("Starting LLMEngine's event loops")
         assert self.engine_initialized, "Engine not initialized. Please call engine.initialize() before starting event loops."
+        shared = {
+        "lock": asyncio.Lock(),
+        "turn_flag": True  # True 表示轮到 decoding_engine_1，False 表示轮到 decoding_engine_2
+         }
         await asyncio.gather(
             self.context_engine.start_event_loop(),
-            self.decoding_engine.start_event_loop(),
-            self.decoding_engine2.start_event_loop(),
+            self.decoding_engine.start_event_loop(shared),
+            self.decoding_engine2.start_event_loop(shared),
             self._start_my_event_loop()
         )
         
