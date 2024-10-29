@@ -543,6 +543,7 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
         Note: if pipeline parallelism is used, one step only kicks one stage of execution,
         and each request needs #pp steps in total to generate one token.
         """
+        print(f"{self.dengine_id} is stepping...")
 
         pp_size = self.parallel_config.pipeline_parallel_size
         tp_size = self.parallel_config.tensor_parallel_size
