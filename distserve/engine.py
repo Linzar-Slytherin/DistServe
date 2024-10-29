@@ -203,7 +203,8 @@ class LLMEngine:
         num_placement_groups = self.model_config.get_num_layers() // layer_per_placement_group
         assert num_placement_groups * workers_per_placement_group == \
             context_pp * context_tp + decoding_pp * decoding_tp
-        
+        workers_per_placement_group=3
+        num_placement_groups=1
         # Create placement groups
         placement_groups = []
         for i in range(num_placement_groups):
