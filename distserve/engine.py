@@ -120,8 +120,20 @@ class LLMEngine:
             self._on_new_lifetime_event_callback
         )
         
-        logger.info("Initializing decoding stage LLM engine")
+        logger.info("Initializing 1decoding stage LLM engine")
         self.decoding_engine = DecodingStageLLMEngine(
+            self.bridge_queue,
+            model_config,
+            disagg_parallel_config.decoding,
+            cache_config,
+            decoding_sched_config,
+            placement_groups,
+            self.context_engine.clear_migrated_blocks_callback,
+            self._on_new_step_output_callback,
+            self._on_new_lifetime_event_callback
+        )
+        logger.info("Initializing 2decoding stage LLM engine")
+        self.decoding_engine2 = DecodingStageLLMEngine(
             self.bridge_queue,
             model_config,
             disagg_parallel_config.decoding,
@@ -207,9 +219,14 @@ class LLMEngine:
     async def initialize(self):
         await asyncio.gather(
             self.context_engine.initialize(),
-            self.decoding_engine.initialize()
+            self.decoding_engine.initialize(),
+            self.decoding_engine2.initialize()
         )
         await self.decoding_engine.register_kvcache_mem_handles(
+            self.context_engine.parallel_config,
+            self.context_engine.kv_cache_mem_handles
+        )
+        await self.decoding_engine2.register_kvcache_mem_handles(
             self.context_engine.parallel_config,
             self.context_engine.kv_cache_mem_handles
         )
@@ -236,6 +253,7 @@ class LLMEngine:
         """
         handlers = self.context_engine._remote_call_all_workers_async(func_name, *args)
         handlers += self.decoding_engine._remote_call_all_workers_async(func_name, *args)
+        handlers += self.decoding_engine2._remote_call_all_workers_async(func_name, *args)
         return handlers
 
     async def _start_my_event_loop(self):
@@ -251,6 +269,7 @@ class LLMEngine:
         await asyncio.gather(
             self.context_engine.start_event_loop(),
             self.decoding_engine.start_event_loop(),
+            self.decoding_engine2.start_event_loop(),
             self._start_my_event_loop()
         )
         
@@ -302,6 +321,7 @@ class LLMEngine:
     def abort_request(self, request_id: int):
         self.context_engine.abort_request(request_id)
         self.decoding_engine.abort_request(request_id)
+        self.decoding_engine2.abort_request(request_id)
         
 def add_engine_cli_args(parser: argparse.ArgumentParser):
     parser.add_argument("--model", type=str, required=True)
