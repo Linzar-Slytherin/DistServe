@@ -643,13 +643,21 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
         # proactive request migraion
         await self.scheduler.post_process()
     
-    async def start_event_loop(self):
+    async def start_event_loop(self,shared_context):
         async def event_loop1():
             # Event loop 1. Add migrating request to the scheduler
             while True:
-                migrating_req = await self.bridge_queue.get()
-                await self.scheduler.add_request(migrating_req)
-                self.bridge_queue.task_done()
+               async with shared_context["lock"]:
+                    if (self.engine_id == "decoding_engine_1" and shared_context["turn_flag"]) or \
+                       (self.engine_id == "decoding_engine_2" and not shared_context["turn_flag"]):
+                        # 轮到当前引擎从队列中获取请求
+                        shared_context["turn_flag"] = not shared_context["turn_flag"]  # 切换轮次
+                        migrating_req = await self.bridge_queue.get()  # 从队列获取请求
+                        await self.scheduler.add_request(migrating_req)  # 添加请求到调度器
+                        self.bridge_queue.task_done()
+
+                # 轻微休眠，防止忙等
+                await asyncio.sleep(0.01)
         
         async def event_loop2():
             # Event loop 2. Run step()
