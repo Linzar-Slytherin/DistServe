@@ -10,7 +10,7 @@ from distserve.config import (
 )
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model', type=str, help='The model to use', default='meta-llama/Llama-2-7b-hf')
+parser.add_argument('--model', type=str, help='The model to use', default='facebook/opt-6.7b')
 args = parser.parse_args()
 
 # Sample prompts.
