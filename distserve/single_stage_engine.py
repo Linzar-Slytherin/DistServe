@@ -263,6 +263,7 @@ class ContextStageLLMEngine(SingleStageLLMEngine):
     
     def __init__(
         self,
+        cengine_id:int,
         bridge_queue: asyncio.Queue[MigratingRequest],
         model_config: ModelConfig,
         parallel_config: ParallelConfig,
@@ -287,7 +288,7 @@ class ContextStageLLMEngine(SingleStageLLMEngine):
         # Note: len(batched_in_pipeline) <= pp_size and batches are appended in FIFO
         self.batches_in_pipeline: List[BatchedRequests] = []
         self.batches_ret_futures = []
-        
+        self.cengine_id=cengine_id
         self.bridge_queue = bridge_queue
     
     def add_request(self, request: Request):
@@ -437,6 +438,7 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
         
     def __init__(
         self,
+        dengine_id: int,
         bridge_queue: asyncio.Queue[MigratingRequest],
         model_config: ModelConfig,
         parallel_config: ParallelConfig,
@@ -460,7 +462,7 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
         
         self.bridge_queue = bridge_queue
         self.clear_migrated_blocks_callback = clear_migrated_blocks_callback
-        
+        self.dengine_id = dengine_id
         # All the batchedrequests that are pushed into the pipeline
         # Note: len(batched_in_pipeline) <= pp_size and batches are appended in FIFO
         self.batches_in_pipeline = []
