@@ -656,8 +656,6 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
                         await self.scheduler.add_request(migrating_req)  # 添加请求到调度器
                         self.bridge_queue.task_done()
 
-                # 轻微休眠，防止忙等
-                await asyncio.sleep(0.01)
         
         async def event_loop2():
             # Event loop 2. Run step()
