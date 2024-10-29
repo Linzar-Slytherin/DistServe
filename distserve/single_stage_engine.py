@@ -648,8 +648,8 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
             # Event loop 1. Add migrating request to the scheduler
             while True:
                async with shared_context["lock"]:
-                    if (self.engine_id == "decoding_engine_1" and shared_context["turn_flag"]) or \
-                       (self.engine_id == "decoding_engine_2" and not shared_context["turn_flag"]):
+                    if (self.dengine_id == 1 and shared_context["turn_flag"]) or \
+                       (self.dengine_id == 2 and not shared_context["turn_flag"]):
                         # 轮到当前引擎从队列中获取请求
                         shared_context["turn_flag"] = not shared_context["turn_flag"]  # 切换轮次
                         migrating_req = await self.bridge_queue.get()  # 从队列获取请求
