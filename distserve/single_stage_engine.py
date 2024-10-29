@@ -82,6 +82,7 @@ class SingleStageLLMEngine(ABC):
     
     def __init__(
         self,
+        engineid:int,
         stage: Stage,
         model_config: ModelConfig,
         parallel_config: ParallelConfig,
@@ -92,6 +93,7 @@ class SingleStageLLMEngine(ABC):
         engine_on_new_lifetime_event_callback: Optional[Callable[[int, LifetimeEvent, bool], None]] = None,   # The LLMEngine's callback function when a new LifetimeEvent of a particular request is generated
     ):
         self.stage = stage
+        self.engineid=engineid
         self.model_config = model_config
         self.parallel_config = parallel_config
         self.cache_config = cache_config
