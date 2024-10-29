@@ -110,6 +110,7 @@ class LLMEngine:
         
         logger.info("Initializing context stage LLM engine")
         self.context_engine = ContextStageLLMEngine(
+            1,
             self.bridge_queue,
             model_config,
             disagg_parallel_config.context,
@@ -122,6 +123,7 @@ class LLMEngine:
         
         logger.info("Initializing 1decoding stage LLM engine")
         self.decoding_engine = DecodingStageLLMEngine(
+            1,
             self.bridge_queue,
             model_config,
             disagg_parallel_config.decoding,
@@ -134,6 +136,7 @@ class LLMEngine:
         )
         logger.info("Initializing 2decoding stage LLM engine")
         self.decoding_engine2 = DecodingStageLLMEngine(
+            2,
             self.bridge_queue,
             model_config,
             disagg_parallel_config.decoding,
