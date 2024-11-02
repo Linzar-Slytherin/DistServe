@@ -19,7 +19,7 @@ prompts = [
     "A gentle breeze whispers. Through the leaves. As the sun dips",
     "In the stillness of night. Stars begin to appear. Watching",
     "Courage is not the absence of fear. It is the strength. To move forward",
-    "Raindrops dance on rooftops.  rhythm. That echoes through",
+    "Raindrops dance on rooftops. That echoes through",
     "The mountain stood tall. A silent witness. To the passage of time",
     "Dreams are the seeds. Planted deep within the soul. Waiting to bloom",
     "She walked along the beach. Feeling the cool sand. Beneath her feet",
