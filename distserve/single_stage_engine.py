@@ -447,7 +447,8 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
         placement_groups: List[PlacementGroup],
         clear_migrated_blocks_callback: Callable[[Request], None],
         engine_on_new_step_output_callback: Callable[[int, StepOutput], None],
-        engine_on_new_lifetime_event_callback: Callable[[int, LifetimeEvent, bool], None]
+        engine_on_new_lifetime_event_callback: Callable[[int, LifetimeEvent, bool], None],
+        clear_migrated_blocks_callback2: Callable[[Request], None]
     ):
         super().__init__(
             Stage.DECODING,
@@ -462,6 +463,7 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
         
         self.bridge_queue = bridge_queue
         self.clear_migrated_blocks_callback = clear_migrated_blocks_callback
+        self.clear_migrated_blocks_callback2 = clear_migrated_blocks_callback2
         self.dengine_id = dengine_id
         # All the batchedrequests that are pushed into the pipeline
         # Note: len(batched_in_pipeline) <= pp_size and batches are appended in FIFO
@@ -471,7 +473,8 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
     async def register_kvcache_mem_handles(
         self,
         context_parallel_config: ParallelConfig,
-        kv_cache_mem_handles: List[List[Tuple[cudaMemoryIpcHandle, cudaMemoryIpcHandle]]]
+        kv_cache_mem_handles: List[List[Tuple[cudaMemoryIpcHandle, cudaMemoryIpcHandle]]],
+        cengine_id:int
     ):
         """
         Distribute kv cache memory IPC handles to workers and workers will
@@ -481,7 +484,8 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
         await asyncio.wait(self._remote_call_all_workers_async(
             "register_kvcache_mem_handles",
             context_parallel_config,
-            kv_cache_mem_handles
+            kv_cache_mem_handles,
+            cengine_id
         ))
     
     def _free_request_resources(self, request_id: int):
@@ -509,6 +513,7 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
         # since we are going to overwrite them later when allocating blocks
         generated_token_bkup = migrating_req.req.generated_tokens
         generated_token_ids_bkup = migrating_req.req.generated_token_ids
+        cengine_id=migrating_req.req.cengine_id
         migrating_req.req.generated_tokens = []
         migrating_req.req.generated_token_ids = []
         self.block_manager.allocate_blocks(migrating_req.req)
@@ -527,7 +532,8 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
             "migrate_blocks",
             migrating_req.block_indexes,
             migrating_req.context_parallel_config,
-            target_block_indexes
+            target_block_indexes,
+            cengine_id
         ))
         self.engine_on_new_lifetime_event_callback(
             migrating_req.req.request_id,
@@ -535,7 +541,11 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
         )
     
         # Clear the blocks on the context engine's side
-        self.clear_migrated_blocks_callback(migrating_req)
+        if(migrating_req.req.cengine_id==1):
+            self.clear_migrated_blocks_callback(migrating_req)
+        else:
+            self.clear_migrated_blocks_callback2(migrating_req)
+        
             
     async def _step(self) -> None:
         """

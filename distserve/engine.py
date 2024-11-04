@@ -95,8 +95,8 @@ class LLMEngine:
         self.cache_config = cache_config
         self.context_sched_config = context_sched_config
         self.decoding_sched_config = decoding_sched_config
-
         self.request_counter = Counter()
+        self.count=1
         self.tokenizer = get_tokenizer(
             model_config.tokenizer,
             tokenizer_mode=model_config.tokenizer_mode,
@@ -108,7 +108,7 @@ class LLMEngine:
         logger.info("Initializing placement group")
         placement_groups = self._init_placement_groups()
         
-        logger.info("Initializing context stage LLM engine")
+        logger.info("Initializing 1context stage LLM engine")
         self.context_engine = ContextStageLLMEngine(
             1,
             self.bridge_queue,
@@ -120,7 +120,18 @@ class LLMEngine:
             self._on_new_step_output_callback,
             self._on_new_lifetime_event_callback
         )
-        
+        logger.info("Initializing 2context stage LLM engine")
+        self.context_engine2 = ContextStageLLMEngine(
+            2,
+            self.bridge_queue,
+            model_config,
+            disagg_parallel_config.context,
+            cache_config,
+            context_sched_config,
+            placement_groups,
+            self._on_new_step_output_callback,
+            self._on_new_lifetime_event_callback
+        )
         logger.info("Initializing 1decoding stage LLM engine")
         self.decoding_engine = DecodingStageLLMEngine(
             1,
@@ -132,7 +143,8 @@ class LLMEngine:
             placement_groups,
             self.context_engine.clear_migrated_blocks_callback,
             self._on_new_step_output_callback,
-            self._on_new_lifetime_event_callback
+            self._on_new_lifetime_event_callback,
+            self.context_engine2.clear_migrated_blocks_callback
         )
         logger.info("Initializing 2decoding stage LLM engine")
         self.decoding_engine2 = DecodingStageLLMEngine(
@@ -145,7 +157,8 @@ class LLMEngine:
             placement_groups,
             self.context_engine.clear_migrated_blocks_callback,
             self._on_new_step_output_callback,
-            self._on_new_lifetime_event_callback
+            self._on_new_lifetime_event_callback,
+            self.context_engine2.clear_migrated_blocks_callback
         )
         
         # request_id -> list of StepOutput
@@ -206,7 +219,7 @@ class LLMEngine:
         num_placement_groups = self.model_config.get_num_layers() // layer_per_placement_group
         assert num_placement_groups * workers_per_placement_group == \
             context_pp * context_tp + decoding_pp * decoding_tp
-        workers_per_placement_group=3
+        workers_per_placement_group=4
         num_placement_groups=1
         # Create placement groups
         placement_groups = []
@@ -223,16 +236,30 @@ class LLMEngine:
     async def initialize(self):
         await asyncio.gather(
             self.context_engine.initialize(),
+            self.context_engine2.initialize(),
             self.decoding_engine.initialize(),
             self.decoding_engine2.initialize()
         )
         await self.decoding_engine.register_kvcache_mem_handles(
             self.context_engine.parallel_config,
-            self.context_engine.kv_cache_mem_handles
+            self.context_engine.kv_cache_mem_handles,
+            self.context_engine.cengine_id
+        )
+
+        await self.decoding_engine.register_kvcache_mem_handles(
+            self.context_engine2.parallel_config,
+            self.context_engine2.kv_cache_mem_handles,
+            self.context_engine2.cengine_id
         )
         await self.decoding_engine2.register_kvcache_mem_handles(
             self.context_engine.parallel_config,
-            self.context_engine.kv_cache_mem_handles
+            self.context_engine.kv_cache_mem_handles,
+            self.context_engine.cengine_id
+        )
+        await self.decoding_engine2.register_kvcache_mem_handles(
+            self.context_engine2.parallel_config,
+            self.context_engine2.kv_cache_mem_handles,
+            self.context_engine2.cengine_id
         )
         self.engine_initialized = True
         
@@ -256,6 +283,7 @@ class LLMEngine:
         call func_name asynchronously on all workers (context/decoding/both), return the futures immediately
         """
         handlers = self.context_engine._remote_call_all_workers_async(func_name, *args)
+        handlers += self.context_engine2._remote_call_all_workers_async(func_name, *args)
         handlers += self.decoding_engine._remote_call_all_workers_async(func_name, *args)
         handlers += self.decoding_engine2._remote_call_all_workers_async(func_name, *args)
         return handlers
@@ -276,6 +304,7 @@ class LLMEngine:
          }
         await asyncio.gather(
             self.context_engine.start_event_loop(),
+            self.context_engine2.start_event_loop(),
             self.decoding_engine.start_event_loop(shared),
             self.decoding_engine2.start_event_loop(shared),
             self._start_my_event_loop()
@@ -296,6 +325,13 @@ class LLMEngine:
         used in a for loop. For example, `async for output in engine.generate(...)`
         """
         assert self.engine_initialized, "Engine not initialized. Please call engine.initialize() before generating."
+        if self.count % 2 == 0:
+            selected_engine = self.context_engine
+            cengine = 1
+        else:
+            selected_engine = self.context_engine2
+            cengine = 2
+        self.count += 1
         req = create_request(
             prompt,
             prompt_token_ids,
@@ -304,12 +340,13 @@ class LLMEngine:
             self.tokenizer,
             arrival_time,
             request_id,
+            cengine
         )
         self.request_outputs[req.request_id] = asyncio.Queue()
         self.request_lifetime_events[req.request_id] = []
         
         self._on_new_lifetime_event_callback(req.request_id, LifetimeEvent(LifetimeEventType.Issued))
-        self.context_engine.add_request(req)
+        selected_engine.add_request(req)
         
         while True:
             try:
@@ -328,6 +365,7 @@ class LLMEngine:
 
     def abort_request(self, request_id: int):
         self.context_engine.abort_request(request_id)
+        self.context_engine2.abort_request(request_id)
         self.decoding_engine.abort_request(request_id)
         self.decoding_engine2.abort_request(request_id)
         

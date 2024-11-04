@@ -176,7 +176,8 @@ class Request:
         prompt: str,
         prompt_token_ids: List[int],
         sampling_params: SamplingParams = SamplingParams(),
-        priority: int = 0
+        priority: int = 0,
+        cengine_id: int = 0
     ):
         # static states
         self.arrival_time = arrival_time
@@ -184,6 +185,7 @@ class Request:
         self.prompt = prompt
         self.prompt_token_ids = prompt_token_ids
         self.sampling_params = sampling_params
+        self.cengine_id = cengine_id
 
         # dynamic states
         self.generated_tokens = []
@@ -385,9 +387,12 @@ def create_request(
     tokenizer,
     arrival_time: Optional[float] = None,
     request_id: Optional[int] = None,
+    cengine_id: Optional[int] = None
 ) -> Request:
     if request_id is None:
         request_id = next(request_counter)
+    if cengine_id is None:
+        cengine_id = 0
     if prompt_token_ids is None:
         assert prompt is not None
         prompt_token_ids = tokenizer.encode(prompt)
@@ -402,6 +407,7 @@ def create_request(
         prompt,
         prompt_token_ids,
         sampling_params,
+        cengine_id=cengine_id
     )
 
 
