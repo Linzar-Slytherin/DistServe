@@ -675,10 +675,6 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
                 await asyncio.sleep(PRINT_STATUS_INTERVAL)
 
         await asyncio.gather(event_loop1(), event_loop2(), event_loop3())
-
-    
-
-
     def print_engine_status(self):
         self.block_manager.print_block_usage()
         self.scheduler.print_status()
