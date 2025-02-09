@@ -2,7 +2,7 @@ import time, copy
 from typing import Callable, Optional, List, Dict, Tuple
 from abc import ABC, abstractmethod
 import asyncio
-
+from typing import Dict, Callable
 import ray
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 from ray.util.placement_group import PlacementGroup
@@ -413,12 +413,12 @@ class ContextStageLLMEngine(SingleStageLLMEngine):
         
     async def start_event_loop(self):
         async def event_loop1():
-            while True:
+            while self._running:
                 await self._step()
                 await asyncio.sleep(SLEEP_IN_EACH_EVENT_LOOP)
         
         async def event_loop2():
-            while True:
+            while self._running:
                 self.print_engine_status()
                 await asyncio.sleep(PRINT_STATUS_INTERVAL)
 
@@ -426,7 +426,11 @@ class ContextStageLLMEngine(SingleStageLLMEngine):
         
     def print_engine_status(self):
         self.scheduler.print_status()
-        
+    async def shutdown(self):
+        """
+        退出事件循环，并执行相关清理工作
+        """
+        self._running = False
 
 class DecodingStageLLMEngine(SingleStageLLMEngine):
     def _get_scheduler(self) -> DecodingStageScheduler:
@@ -446,10 +450,9 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
         cache_config: CacheConfig,
         sched_config: DecodingStageSchedConfig,
         placement_groups: List[PlacementGroup],
-        clear_migrated_blocks_callback: Callable[[Request], None],
         engine_on_new_step_output_callback: Callable[[int, StepOutput], None],
         engine_on_new_lifetime_event_callback: Callable[[int, LifetimeEvent, bool], None],
-        clear_migrated_blocks_callback2: Callable[[Request], None]
+        clear_migrated_blocks_callbacks: Dict[int, Callable[[MigratingRequest], None]]
     ):
         super().__init__(
             Stage.DECODING,
@@ -459,12 +462,11 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
             sched_config,
             placement_groups,
             engine_on_new_step_output_callback,
-            engine_on_new_lifetime_event_callback
+            engine_on_new_lifetime_event_callback,
         )
         
         self.bridge_queue = bridge_queue
-        self.clear_migrated_blocks_callback = clear_migrated_blocks_callback
-        self.clear_migrated_blocks_callback2 = clear_migrated_blocks_callback2
+        self.clear_migrated_blocks_callbacks = clear_migrated_blocks_callbacks 
         self.cengine_id = cengine_id
         # All the batchedrequests that are pushed into the pipeline
         # Note: len(batched_in_pipeline) <= pp_size and batches are appended in FIFO
@@ -542,10 +544,12 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
         )
     
         # Clear the blocks on the context engine's side
-        if(migrating_req.req.cengine_id==1):
-            self.clear_migrated_blocks_callback(migrating_req)
+        target_id = migrating_req.req.cengine_id
+        callback = self.clear_migrated_blocks_callbacks.get(target_id)
+        if callback is not None:
+            callback(migrating_req)
         else:
-            self.clear_migrated_blocks_callback2(migrating_req)
+            logger.warning(f"No clear callback found for context engine id {target_id}")
         
             
     async def _step(self) -> None:
@@ -684,5 +688,4 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
     def print_engine_status(self):
         self.block_manager.print_block_usage()
         self.scheduler.print_status()
-        
         
