@@ -4,6 +4,7 @@ from typing import List, Optional, Tuple, Dict, AsyncGenerator
 import asyncio
 import math
 import argparse
+from typing import Dict, Callable
 
 import ray
 from ray.util.placement_group import PlacementGroup
@@ -80,6 +81,7 @@ class LLMEngine:
         self.count = 1
         self.name=1
         self.task_manager = TaskManager()
+        self.context_clear_callbacks: Dict[int, Callable[[MigratingRequest], None]] = {}
         self.tokenizer = get_tokenizer(
             model_config.tokenizer,
             tokenizer_mode=model_config.tokenizer_mode,
@@ -94,6 +96,7 @@ class LLMEngine:
         # 初始化 placement groups（和之前类似）
         logger.info("Initializing placement group")
         placement_groups = self._init_placement_groups()
+        self.resources: List[SingleStageLLMEngine] = []
 
         # 动态创建 context 引擎列表
         self.context_engines: List[ContextStageLLMEngine] = []
@@ -111,6 +114,8 @@ class LLMEngine:
             )
             logger.info(f"Initializing context stage LLM engine {i + 1}")
             self.context_engines.append(engine)
+            self.resources.append(engine)
+            self.context_clear_callbacks[engine.cengine_id] = engine.clear_migrated_blocks_callback
             self.name=self.name+1
 
         # 动态创建 decode 引擎列表，每个 decode 引擎有自己的队列
@@ -125,14 +130,13 @@ class LLMEngine:
                 cache_config=cache_config,
                 sched_config=decoding_sched_config,
                 placement_groups=placement_groups,
-                # 下面传入 context 引擎的 kv cache 清理回调需要传入所有 context engine 的回调函数
-                clear_migrated_blocks_callback=self.context_engines[0].clear_migrated_blocks_callback,  # 假设所有 context engine 实现一致
                 engine_on_new_step_output_callback=self._on_new_step_output_callback,
                 engine_on_new_lifetime_event_callback=self._on_new_lifetime_event_callback,
-                clear_migrated_blocks_callback2=(self.context_engines[1].clear_migrated_blocks_callback if len(self.context_engines) >= 2 else None)
+                clear_migrated_blocks_callbacks=self.context_clear_callbacks,  # 假设所有 context engine 实现一致
             )
             logger.info(f"Initializing decoding stage LLM engine {i + 1}")
             self.decoding_engines.append(engine)
+            self.resources.append(engine)
             self.name=self.name+1
 
         # 存放请求 id 对应的最终输出（来自 on_new_step_output_callback）
@@ -261,7 +265,7 @@ class LLMEngine:
         assert self.engine_initialized, "Engine not initialized. Please call engine.initialize() before generating."
 
         # 轮询选取一个 context engine
-        selected_engine = self.context_engines[self.count % self.num_context_engines]
+        selected_engine = self.context_engines[self.count % len(self.context_engines)]
         cengine_id = selected_engine.cengine_id
         self.count += 1
 
@@ -300,6 +304,7 @@ class LLMEngine:
             if engine.cengine_id == target_engine_id:
                 engine_to_remove = engine
                 self.context_engines.remove(engine_to_remove)
+                self.context_clear_callbacks.pop(target_engine_id, None)
                 break
         for engine in self.decoding_engines:
             if engine.cengine_id == target_engine_id:
@@ -344,3 +349,4 @@ def add_engine_cli_args(parser: argparse.ArgumentParser):
     parser.add_argument("--simulator-mode", action="store_true")
     parser.add_argument("--profiler-data-path", type=str, default=None)
     parser.add_argument("--gpu-mem-size-gb", type=float, default=None)
+    
