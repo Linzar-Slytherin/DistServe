@@ -98,7 +98,7 @@ class SingleStageLLMEngine(ABC):
         self.sched_config = sched_config
         self.engine_on_new_step_output_callback = engine_on_new_step_output_callback
         self.engine_on_new_lifetime_event_callback = engine_on_new_lifetime_event_callback
-
+        self._running = True
         self.tokenizer = get_tokenizer(
             model_config.tokenizer,
             tokenizer_mode=model_config.tokenizer_mode,
@@ -394,6 +394,7 @@ class ContextStageLLMEngine(SingleStageLLMEngine):
                 for request in finished_batch.requests:
                     if not request.is_finished:
                         # Push the request into the bridge queue if it is not finished
+                        print(f"{self.cengine_id} is context one...")
                         migrating_req = MigratingRequest(
                             request,
                             self.block_manager.get_block_table(request.request_id),
@@ -438,7 +439,7 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
         
     def __init__(
         self,
-        dengine_id: int,
+        cengine_id: int,
         bridge_queue: asyncio.Queue[MigratingRequest],
         model_config: ModelConfig,
         parallel_config: ParallelConfig,
@@ -464,7 +465,7 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
         self.bridge_queue = bridge_queue
         self.clear_migrated_blocks_callback = clear_migrated_blocks_callback
         self.clear_migrated_blocks_callback2 = clear_migrated_blocks_callback2
-        self.dengine_id = dengine_id
+        self.cengine_id = cengine_id
         # All the batchedrequests that are pushed into the pipeline
         # Note: len(batched_in_pipeline) <= pp_size and batches are appended in FIFO
         self.batches_in_pipeline = []
@@ -634,7 +635,7 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
                         StepOutput(request, new_token, new_token_id)
                     )
                     if request.is_finished:
-                        print(f"{self.dengine_id} is complete one...")
+                        print(f"{self.cengine_id} is complete one...")
                         self.engine_on_new_lifetime_event_callback(
                             request.request_id,
                             LifetimeEvent(LifetimeEventType.DecodingEnd)
@@ -657,25 +658,31 @@ class DecodingStageLLMEngine(SingleStageLLMEngine):
     async def start_event_loop(self):
         async def event_loop1():
         # Event loop 1. 从专用队列中获取任务，并添加到调度器
-            while True:
+            while self._running:
                 migrating_req = await self.bridge_queue.get()  
                 await self.scheduler.add_request(migrating_req)
                 self.bridge_queue.task_done()
 
         async def event_loop2():
         # Event loop 2. 执行 _step() 处理逻辑
-            while True:
+            while self._running:
                 await self._step()
                 await asyncio.sleep(SLEEP_IN_EACH_EVENT_LOOP)
 
         async def event_loop3():
         # Event loop 3. 定时打印引擎状态
-            while True:
+            while self._running:
                 self.print_engine_status()
                 await asyncio.sleep(PRINT_STATUS_INTERVAL)
 
         await asyncio.gather(event_loop1(), event_loop2(), event_loop3())
+    async def shutdown(self):
+        """
+        退出事件循环，并执行相关清理工作
+        """
+        self._running = False
     def print_engine_status(self):
         self.block_manager.print_block_usage()
         self.scheduler.print_status()
+        
         
