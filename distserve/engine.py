@@ -181,15 +181,16 @@ class LLMEngine:
 
         # 对于每个 decode 引擎，依次注册所有 context 引擎的 kvcache memory handles
         registration_tasks = []
-        for decode_engine in self.decoding_engines:
-            for context_engine in self.context_engines:
-                registration_tasks.append(
-                    decode_engine.register_kvcache_mem_handles(
-                        context_engine.parallel_config,
-                        context_engine.kv_cache_mem_handles,
-                        context_engine.cengine_id
+        for engine in self.resources:
+            for other_engine in self.resources:
+                if engine is not other_engine:
+                    registration_tasks.append(
+                        engine.register_kvcache_mem_handles(
+                            other_engine.parallel_config,
+                            other_engine.kv_cache_mem_handles,
+                            other_engine.cengine_id
+                        )
                     )
-                )
         await asyncio.gather(*registration_tasks)
 
         self.engine_initialized = True
