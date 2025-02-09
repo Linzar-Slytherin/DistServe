@@ -32,7 +32,26 @@ from distserve.single_stage_engine import (
 from distserve.lifetime import LifetimeEvent, LifetimeEventType
 
 logger = init_logger(__name__)
+class TaskManager:
+    def __init__(self):
+        self.tasks = []
 
+    def add_task(self, coro, name: Optional[str] = None):
+        task = asyncio.create_task(coro, name=name)
+        self.tasks.append(task)
+        return task
+
+    def cancel_task(self, task):
+        """
+        取消单个任务，并从任务列表中移除它
+        """
+        task.cancel()
+        self.tasks.remove(task)
+
+    async def cancel_all(self):
+        for task in self.tasks:
+            task.cancel()
+        await asyncio.gather(*self.tasks, return_exceptions=True)
 
 
 class LLMEngine:
@@ -59,6 +78,8 @@ class LLMEngine:
         self.decoding_sched_config = decoding_sched_config
         self.request_counter = Counter()
         self.count = 1
+        self.name=1
+        self.task_manager = TaskManager()
         self.tokenizer = get_tokenizer(
             model_config.tokenizer,
             tokenizer_mode=model_config.tokenizer_mode,
@@ -67,8 +88,8 @@ class LLMEngine:
 
         # 用于 context 阶段生产的中间结果（比如 kv cache 或 token 输出）
         self.bridge_queue = asyncio.Queue()
-        # 为 decode 阶段单独维护一个队列列表，每个 decode engine 一个队列
-        self.decode_queues = [asyncio.Queue() for _ in range(num_decoding_engines)]
+        # 为 decode 阶段单独维护一个队列列表，每个 decode engine (所有的都有可能转变成decode)一个队列
+        self.decode_queues = [asyncio.Queue() for _ in range(9)]
 
         # 初始化 placement groups（和之前类似）
         logger.info("Initializing placement group")
@@ -78,7 +99,7 @@ class LLMEngine:
         self.context_engines: List[ContextStageLLMEngine] = []
         for i in range(num_context_engines):
             engine = ContextStageLLMEngine(
-                cengine_id=i + 1,
+                cengine_id=self.name,
                 bridge_queue=self.bridge_queue,  # 多个 context 引擎共享同一队列
                 model_config=model_config,
                 parallel_config=disagg_parallel_config.context,
@@ -90,14 +111,15 @@ class LLMEngine:
             )
             logger.info(f"Initializing context stage LLM engine {i + 1}")
             self.context_engines.append(engine)
+            self.name=self.name+1
 
         # 动态创建 decode 引擎列表，每个 decode 引擎有自己的队列
         self.decoding_engines: List[DecodingStageLLMEngine] = []
         for i in range(num_decoding_engines):
             engine = DecodingStageLLMEngine(
-                dengine_id=i + 1,
+                cengine_id=self.name,
                 # 将 decode 阶段的输入队列设为各自专用的队列
-                bridge_queue=self.decode_queues[i],
+                bridge_queue=self.decode_queues[self.name],
                 model_config=model_config,
                 parallel_config=disagg_parallel_config.decoding,
                 cache_config=cache_config,
@@ -111,6 +133,7 @@ class LLMEngine:
             )
             logger.info(f"Initializing decoding stage LLM engine {i + 1}")
             self.decoding_engines.append(engine)
+            self.name=self.name+1
 
         # 存放请求 id 对应的最终输出（来自 on_new_step_output_callback）
         self.request_outputs: Dict[int, asyncio.Queue[StepOutput]] = {}
@@ -174,8 +197,9 @@ class LLMEngine:
         while True:
             step_output = await self.bridge_queue.get()
             # 将获取到的数据送入当前 decode 队列
-            await self.decode_queues[idx].put(step_output)
-            idx = (idx + 1) % self.num_decoding_engines
+            a=self.decoding_engines[idx].cengine_id
+            await self.decode_queues[a].put(step_output)
+            idx = (idx + 1) % len(self.decoding_engines)
         
     def abort_request(self, request_id: int):
         for engine in self.context_engines:
@@ -202,21 +226,30 @@ class LLMEngine:
 
     async def _start_my_event_loop(self):
         pass
-    
+
     async def start_all_event_loops(self):
         logger.info("Starting LLMEngine event loops")
         assert self.engine_initialized, "Engine not initialized. Please call engine.initialize() before starting event loops."
-
-        # 初始化所有引擎的事件循环任务
-        tasks = []
+        # 添加所有 context 引擎的事件循环任务
         for engine in self.context_engines:
-            tasks.append(engine.start_event_loop())
-        for engine in self.decoding_engines:
-            tasks.append(engine.start_event_loop())
-        # 加入 dispatcher 任务
-        tasks.append(self._decode_dispatcher())
-        await asyncio.gather(*tasks)
+            engine.task = self.task_manager.add_task(
+                engine.start_event_loop(),
+                name=f"context_engine_{engine.cengine_id}"
+            )
 
+    # 添加所有 decoding 引擎的事件循环任务
+        for engine in self.decoding_engines:
+            engine.task = self.task_manager.add_task(
+                engine.start_event_loop(),
+                name=f"decoding_engine_{engine.cengine_id}"
+            )
+
+    # 添加 dispatcher 任务
+        self.task_manager.add_task(self._decode_dispatcher(), name="decode_dispatcher")
+
+    # 等待所有任务（这通常是长期运行的任务）
+        await asyncio.gather(*self.task_manager.tasks)
+   
     async def generate(
         self,
         prompt: Optional[str],
@@ -260,10 +293,29 @@ class LLMEngine:
                 break
 
         del self.request_outputs[req.request_id]
-
-
-
         
+    async def remove(self, target_engine_id: int):
+        engine_to_remove = None
+        for engine in self.context_engines:
+            if engine.cengine_id == target_engine_id:
+                engine_to_remove = engine
+                self.context_engines.remove(engine_to_remove)
+                break
+        for engine in self.decoding_engines:
+            if engine.cengine_id == target_engine_id:
+                engine_to_remove = engine
+                self.decoding_engines.remove(engine_to_remove)
+                break
+        if engine_to_remove is None:
+            logger.warning(f"Context engine with cengine_id {target_engine_id} not found.")
+            return
+    # 通知该引擎退出事件循环并清理相关资源
+        if hasattr(engine_to_remove, "task") and engine_to_remove.task:
+            self.task_manager.cancel_task(engine_to_remove.task)
+        await engine_to_remove.shutdown()
+        logger.info(f"Removed context engine with cengine_id {target_engine_id}")
+        
+
 def add_engine_cli_args(parser: argparse.ArgumentParser):
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--tokenizer", type=str, default=None)
@@ -292,4 +344,3 @@ def add_engine_cli_args(parser: argparse.ArgumentParser):
     parser.add_argument("--simulator-mode", action="store_true")
     parser.add_argument("--profiler-data-path", type=str, default=None)
     parser.add_argument("--gpu-mem-size-gb", type=float, default=None)
-    
