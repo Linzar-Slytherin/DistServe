@@ -296,7 +296,24 @@ class ContextStageLLMEngine(SingleStageLLMEngine):
     
     def _free_request_resources(self, request_id: int):
         super()._free_request_resources(request_id)
-        
+    async def register_kvcache_mem_handles(
+        self,
+        context_parallel_config: ParallelConfig,
+        kv_cache_mem_handles: List[List[Tuple[cudaMemoryIpcHandle, cudaMemoryIpcHandle]]],
+        cengine_id:int
+    ):
+        """
+        Distribute kv cache memory IPC handles to workers and workers will
+        register those handles.
+        """
+        self.kv_cache_mem_handles = kv_cache_mem_handles
+        await asyncio.wait(self._remote_call_all_workers_async(
+            "register_kvcache_mem_handles",
+            context_parallel_config,
+            kv_cache_mem_handles,
+            cengine_id
+        ))
+       
     async def _step(self):
         """
         Run one step of inference on the batch of requests chosen by the scheduler.
