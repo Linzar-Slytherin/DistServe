@@ -204,7 +204,6 @@ class LLMEngine:
         """从 context 阶段的 bridge_queue 中取出数据，
            按轮询的方式分发到各个 decode 队列中。"""
         while True:
-            logger.info("Starting LLMEngine event loops")
             step_output = await self.bridge_queue.get()
             selecte_dengine = self.decoding_engines[self.count1 % len(self.decoding_engines)]
             cengine_id = selecte_dengine.cengine_id
