@@ -1,0 +1,6 @@
+[
+  {"timestamp": 0, "operation": "remove", "params": [0]},
+  {"timestamp": 0, "operation": "add", "params": ["context",0]},
+  {"timestamp": 10, "operation": "remove", "params": [0]},
+  {"timestamp": 10, "operation": "change","params":["context",0,"decoding",0]}
+]
