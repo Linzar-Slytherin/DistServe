@@ -204,6 +204,7 @@ class LLMEngine:
         """从 context 阶段的 bridge_queue 中取出数据，
            按轮询的方式分发到各个 decode 队列中。"""
         while True:
+            logger.info("Starting LLMEngine event loops")
             step_output = await self.bridge_queue.get()
             selecte_dengine = self.decoding_engines[self.count1 % len(self.decoding_engines)]
             cengine_id = selecte_dengine.cengine_id
@@ -236,7 +237,7 @@ class LLMEngine:
         pass
 
     async def start_all_event_loops(self):
-        logger.info("Starting LLMEngine event loops")
+        #logger.info("Starting LLMEngine event loops")
         assert self.engine_initialized, "Engine not initialized. Please call engine.initialize() before starting event loops."
         # 添加所有 context 引擎的事件循环任务
         for engine in self.context_engines:
@@ -300,6 +301,11 @@ class LLMEngine:
                 break
 
         del self.request_outputs[req.request_id]
+    async def wait_for_gpu_block_release(self, engine_to_remove):
+        """等待直到 GPU 块数变为 0，然后继续任务取消和资源清理"""
+        while (engine_to_remove.block_manager.max_num_gpu_blocks-len(engine_to_remove.block_manager.free_gpu_blocks_list)-len(engine_to_remove.block_manager.swapping_gpu_blocks_list)) > 0:
+            logger.info(f"Waiting for GPU blocks to be released. Current usage: {engine_to_remove.blockmanager.num_gpu_blocks_used}")
+            await asyncio.sleep(0.5)  # 每 0.5 秒检查一次
 
     async def remove(self, target_engine_id: int):
         engine_to_remove = None
@@ -307,7 +313,6 @@ class LLMEngine:
             if engine.cengine_id == target_engine_id:
                 engine_to_remove = engine
                 self.context_engines.remove(engine_to_remove)
-                self.context_clear_callbacks[target_engine_id] = None
                 break
         for engine in self.decoding_engines:
             if engine.cengine_id == target_engine_id:
@@ -318,9 +323,11 @@ class LLMEngine:
             logger.warning(f"Context engine with cengine_id {target_engine_id} not found.")
             return
         # 通知该引擎退出事件循环并清理相关资源
+        await self.wait_for_gpu_block_release(engine_to_remove)
         logger.info(f"{engine_to_remove.task}")
         self.task_manager.cancel_task(engine_to_remove.task)
         await engine_to_remove.shutdown()
+        await asyncio.sleep(0.5)
         logger.info(f"Removedloop context engine with cengine_id {target_engine_id}")
         logger.info(f"tasknum {len(self.task_manager.tasks)}")
 
@@ -341,6 +348,7 @@ class LLMEngine:
                     oldenging.start_event_loop(),
                     name=f"context_engine_{oldenging.cengine_id}"
                 )
+                await asyncio.sleep(0.5)
                 logger.info(f"Engine with cengine_id {oldenging.cengine_id} addtaskloop.")
                 logger.info(f"tasknum {len(self.task_manager.tasks)}")
 
@@ -352,6 +360,7 @@ class LLMEngine:
                     oldenging.start_event_loop(),
                     name=f"decoding_engine_{oldenging.cengine_id}"
                 )
+                await asyncio.sleep(0.5)
                 logger.info(f"Engine with cengine_id {oldenging.cengine_id} addtaskloop.")
                 logger.info(f"tasknum {len(self.task_manager.tasks)}")
 
@@ -392,6 +401,7 @@ class LLMEngine:
                     engine.start_event_loop(),
                     name=f"context_engine_{engine.cengine_id}"
                 )
+                await asyncio.sleep(0.5)
                 logger.info(f"Engine with cengine_id {oldenging.cengine_id} addtaskloop.")
                 logger.info(f"tasknum {len(self.task_manager.tasks)}")
 
@@ -421,6 +431,7 @@ class LLMEngine:
                 engine.start_event_loop(),
                 name=f"decoding_engine_{engine.cengine_id}"
             )
+            await asyncio.sleep(0.5)
             logger.info(f"Engine with cengine_id {oldenging.cengine_id} addtaskloop.")
             logger.info(f"tasknum {len(self.task_manager.tasks)}")
 
@@ -457,3 +468,4 @@ def add_engine_cli_args(parser: argparse.ArgumentParser):
     parser.add_argument("--simulator-mode", action="store_true")
     parser.add_argument("--profiler-data-path", type=str, default=None)
     parser.add_argument("--gpu-mem-size-gb", type=float, default=None)
+
