@@ -28,7 +28,7 @@ MODEL_TO_PARALLEL_PARAMS = {
     "facebook/opt-13b": {
         "vllm": 1,
         "deepspeed": 1,
-        "distserve": (2, 1, 1, 1)   # TODO adjust me
+        "distserve": (1, 1, 1, 1)   # TODO adjust me
     },
     "facebook/opt-66b": {
         "vllm": 4,
