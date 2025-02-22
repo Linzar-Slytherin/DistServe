@@ -27,7 +27,8 @@ def sample_requests(dataset_path: str, num_prompts: int) -> List[TestRequest]:
         raise ValueError(
             f"Number of prompts ({num_prompts}) is larger than the dataset size ({len(dataset.reqs)})."
         )
-    return random.sample(dataset.reqs, num_prompts)
+    #return random.sample(dataset.reqs, num_prompts)
+    return dataset.reqs[:num_prompts]
 
 
 async def get_request(
@@ -213,6 +214,15 @@ async def benchmark(
         )
         tasks.append(task)
     request_results = await asyncio.gather(*tasks)
+    total_ftl = sum([req.ftl for req in request_results])
+    total_tpot = sum([req.tpot for req in request_results])
+    
+    avg_ftl = total_ftl / len(request_results)
+    avg_tpot = total_tpot / len(request_results)
+
+    # 打印结果
+    print(f"Average FTL (First Token Latency): {avg_ftl:.4f} seconds")
+    print(f"Average TPOT (Token Per Output Token): {avg_tpot:.4f} seconds")
     return request_results
 
 
@@ -226,7 +236,6 @@ def main(args: argparse.Namespace):
         args.dataset, args.num_prompts
     )
     print("Sampling done. Start benchmarking...")
-
     global pbar
     pbar = tqdm(total=args.num_prompts)
     benchmark_start_time = time.time()
