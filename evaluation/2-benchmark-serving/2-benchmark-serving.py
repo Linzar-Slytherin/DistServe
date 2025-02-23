@@ -216,10 +216,18 @@ async def benchmark(
     request_results = await asyncio.gather(*tasks)
     total_ftl = sum([req.ftl for req in request_results])
     total_tpot = sum([req.tpot for req in request_results])
-    
+    tpot_values = [req.tpot for req in request_results]
+    tft_values = [req.ftl for req in request_results]
     avg_ftl = total_ftl / len(request_results)
     avg_tpot = total_tpot / len(request_results)
-
+    count_above_0_1 = sum(1 for tpot in tpot_values if tpot > 0.1)
+    count_above_0_11 = sum(1 for ftl in tft_values if ftl > 0.25)
+    # 计算百分比
+    percentage_above_0_1 = (count_above_0_1 / len(request_results)) * 100
+    percentage_above_0_11 = (count_above_0_11 / len(request_results)) * 100
+    # 打印结果
+    print(f"Percentage of TFT > 0.25: {percentage_above_0_11:.2f}%")
+    print(f"Percentage of TPOT > 0.1: {percentage_above_0_1:.2f}%")
     # 打印结果
     print(f"Average FTL (First Token Latency): {avg_ftl:.4f} seconds")
     print(f"Average TPOT (Token Per Output Token): {avg_tpot:.4f} seconds")
