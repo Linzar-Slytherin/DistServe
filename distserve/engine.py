@@ -303,9 +303,14 @@ class LLMEngine:
         del self.request_outputs[req.request_id]
     async def wait_for_gpu_block_release(self, engine_to_remove):
         """等待直到 GPU 块数变为 0，然后继续任务取消和资源清理"""
+        timeout = 75
+        start_time = asyncio.get_event_loop().time()
         while (engine_to_remove.block_manager.max_num_gpu_blocks-len(engine_to_remove.block_manager.free_gpu_blocks_list)-len(engine_to_remove.block_manager.swapping_gpu_blocks_list)) > 0:
-            logger.info(f"Waiting for GPU blocks to be released. Current usage: {engine_to_remove.blockmanager.num_gpu_blocks_used}")
-            await asyncio.sleep(0.5)  # 每 0.5 秒检查一次
+            logger.info(f"Waiting for GPU block release... Free: {len(engine_to_remove.block_manager.free_gpu_blocks_list)}, Swapping: {len(engine_to_remove.block_manager.swapping_gpu_blocks_list)}")
+            if asyncio.get_event_loop().time() - start_time > timeout:
+               logger.error("Timeout reached while waiting for GPU block release")
+               break  # 超时退出
+            await asyncio.sleep(0)  
 
     async def remove(self, target_engine_id: int):
         engine_to_remove = None
