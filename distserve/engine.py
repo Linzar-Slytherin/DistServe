@@ -317,6 +317,7 @@ class LLMEngine:
         for engine in self.context_engines:
             if engine.cengine_id == target_engine_id:
                 engine_to_remove = engine
+                self.context_clear_callbacks[target_engine_id] = None
                 self.context_engines.remove(engine_to_remove)
                 break
         for engine in self.decoding_engines:
