@@ -306,18 +306,19 @@ class LLMEngine:
         timeout = 75
         start_time = asyncio.get_event_loop().time()
         while (engine_to_remove.block_manager.max_num_gpu_blocks-len(engine_to_remove.block_manager.free_gpu_blocks_list)-len(engine_to_remove.block_manager.swapping_gpu_blocks_list)) > 0:
-            logger.info(f"Waiting for GPU block release... Free: {len(engine_to_remove.block_manager.free_gpu_blocks_list)}, Swapping: {len(engine_to_remove.block_manager.swapping_gpu_blocks_list)}")
             if asyncio.get_event_loop().time() - start_time > timeout:
+               logger.info(f"Waiting for GPU block release... Free: {len(engine_to_remove.block_manager.free_gpu_blocks_list)}, Swapping: {len(engine_to_remove.block_manager.swapping_gpu_blocks_list)}")
                logger.error("Timeout reached while waiting for GPU block release")
                break  # 超时退出
             await asyncio.sleep(0)  
 
     async def remove(self, target_engine_id: int):
         engine_to_remove = None
+        a=0
         for engine in self.context_engines:
             if engine.cengine_id == target_engine_id:
+                a=1
                 engine_to_remove = engine
-                self.context_clear_callbacks[target_engine_id] = None
                 self.context_engines.remove(engine_to_remove)
                 break
         for engine in self.decoding_engines:
@@ -330,6 +331,8 @@ class LLMEngine:
             return
         # 通知该引擎退出事件循环并清理相关资源
         await self.wait_for_gpu_block_release(engine_to_remove)
+        if a==1:
+               self.context_clear_callbacks[target_engine_id] = None
         logger.info(f"{engine_to_remove.task}")
         self.task_manager.cancel_task(engine_to_remove.task)
         await engine_to_remove.shutdown()
