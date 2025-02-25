@@ -20,16 +20,20 @@ pbar: Optional[tqdm] = None
 
 def sample_requests(dataset_path: str, num_prompts: int) -> List[TestRequest]:
     """
-    sample_requests: Sample the given number of requests from the dataset.
+    sample_requests: Sample the given number of requests from the dataset. 
+    If the number of prompts exceeds the dataset size, it will loop over the dataset from the beginning.
     """
     dataset = Dataset.load(dataset_path)
-    if num_prompts > len(dataset.reqs):
-        raise ValueError(
-            f"Number of prompts ({num_prompts}) is larger than the dataset size ({len(dataset.reqs)})."
-        )
-    #return random.sample(dataset.reqs, num_prompts)
-    return dataset.reqs[:num_prompts]
+    total_requests = len(dataset.reqs)
+    
+    if num_prompts > total_requests:
+        print(f"Warning: Number of prompts ({num_prompts}) is larger than the dataset size ({total_requests}), cycling through the dataset.")
 
+    sampled_requests = []
+    for i in range(num_prompts):
+        sampled_requests.append(dataset.reqs[i % total_requests])  # Take the request, looping back if needed
+
+    return sampled_requests
 
 async def get_request(
     input_requests: List[TestRequest],
