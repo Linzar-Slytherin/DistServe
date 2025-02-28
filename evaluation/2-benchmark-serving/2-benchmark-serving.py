@@ -8,7 +8,7 @@ import time
 from typing import AsyncGenerator, List, Optional
 import os
 import sys
-
+import statistics
 import aiohttp
 import numpy as np
 from tqdm import tqdm
