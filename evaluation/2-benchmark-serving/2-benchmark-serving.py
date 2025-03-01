@@ -188,7 +188,6 @@ async def send_request(
             lifetime_events=request_output.get("lifetime_events", None)
         )
 
-
 async def benchmark(
     backend: str,
     api_url: str,
@@ -218,6 +217,15 @@ async def benchmark(
         )
         tasks.append(task)
     request_results = await asyncio.gather(*tasks)
+
+    # 计算每个请求的端到端时间
+    total_request_time = sum([req.end_time - req.start_time for req in request_results])
+    avg_request_time = total_request_time / len(request_results)
+
+    # 打印每个请求的平均端到端时间
+    print(f"Average end-to-end request time: {avg_request_time:.4f} seconds")
+
+    # 计算其他指标
     ftl_values = [req.ftl for req in request_results]
     tpot_values = [req.tpot for req in request_results]
     total_ftl = sum([req.ftl for req in request_results])
@@ -226,20 +234,22 @@ async def benchmark(
     median_tpot = statistics.median(tpot_values)
     avg_ftl = total_ftl / len(request_results)
     avg_tpot = total_tpot / len(request_results)
+
     # 计算超过 0.1 的 tpot 数量
     count_above_0_1 = sum(1 for tpot in tpot_values if tpot > 0.1)
-    count_above_0_11=sum(1 for ftl in ftl_values if ftl > 0.25)
+    count_above_0_11 = sum(1 for ftl in ftl_values if ftl > 0.25)
     # 计算百分比
     percentage_above_0_1 = (count_above_0_1 / len(request_results)) * 100
     percentage_above_0_11 = (count_above_0_11 / len(request_results)) * 100
-    # 打印结果
+
+    # 打印其他统计结果
     print(f"Percentage of TFT > 0.25: {percentage_above_0_11:.2f}%")
     print(f"Percentage of Tpot > 0.1: {percentage_above_0_1:.2f}%")
-    # 打印结果
     print(f"Average FTL (First Token Latency): {avg_ftl:.4f} seconds")
     print(f"Average TPOT (Token Per Output Token): {avg_tpot:.4f} seconds")
     print(f"Median FTL: {median_ftl:.4f} seconds")
     print(f"Median TPOT: {median_tpot:.4f} seconds")
+
 
 
 def main(args: argparse.Namespace):
