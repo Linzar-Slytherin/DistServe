@@ -1,0 +1,18 @@
+[
+{"timestamp": 120,"operation": "remove", "params": [4]},
+{"timestamp": 180,"operation": "remove", "params": [1]},
+{"timestamp": 180,"operation": "remove", "params": [5]},
+{"timestamp": 480,"operation": "add", "params": ["context", 4]},
+{"timestamp": 540,"operation": "change", "params": ["context", 1, "decoding", 1]},
+{"timestamp": 600,"operation": "change", "params": ["decoding", 5, "context", 5]},
+{"timestamp": 720,"operation": "remove", "params": [7]},
+{"timestamp": 720,"operation": "remove", "params": [5]},
+{"timestamp": 720,"operation": "add", "params": ["decoding", 5]},
+{"timestamp": 960,"operation": "change", "params": ["decoding", 7, "context", 7]},
+{"timestamp": 1320,"operation": "remove", "params": [7]},
+{"timestamp": 1620,"operation": "change", "params": ["decoding", 7, "context", 7]},
+{"timestamp": 1920,"operation": "remove", "params": [7]},
+{"timestamp": 1920,"operation": "remove", "params": [3]},
+{"timestamp": 1920,"operation": "remove", "params": [6]},
+{"timestamp": 1920,"operation": "change", "params": ["decoding", 6, "context", 6]}
+]
