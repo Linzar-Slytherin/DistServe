@@ -249,6 +249,7 @@ async def benchmark(
     print(f"Average TPOT (Token Per Output Token): {avg_tpot:.4f} seconds")
     print(f"Median FTL: {median_ftl:.4f} seconds")
     print(f"Median TPOT: {median_tpot:.4f} seconds")
+    return request_results
 
 
 
