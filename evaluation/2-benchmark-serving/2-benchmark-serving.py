@@ -307,7 +307,7 @@ if __name__ == "__main__":
     parser.add_argument("--use-beam-search", action="store_true")
     parser.add_argument(
         "--num-prompts-req-rates", type=str, required=True,
-        help='[(num_prompts, request_rate)] or [(num_prompts, request_rate, burst_flag)] where burst_flag: 1 启用 burst 模式（固定 burst 数量），0 不启用。'
+        help='[(num_prompts, request_rate)] or [(num_prompts, request_rate, burst)] where burst 为非零时表示启用 burst 模式，且其值代表 burst 数量，0 则表示不启用。'
     )
     parser.add_argument(
         "--request-cv",
@@ -361,14 +361,12 @@ if __name__ == "__main__":
     if args.port is None:
         args.port = BACKEND_TO_PORTS[args.backend]
         
-    # 固定 burst 数量，可根据需要调整
-    FIXED_BURST_COUNT = 25
-
     num_prompts_request_rates = eval(args.num_prompts_req_rates)
     for tup in num_prompts_request_rates:
         if len(tup) == 3:
-            num_prompts, request_rate, burst_flag = tup
-            burst_count = FIXED_BURST_COUNT if burst_flag == 1 else 0
+            num_prompts, request_rate, burst = tup
+            # burst 非 0 时启用 burst 模式，并将 burst_count 设置为该值，否则不启用
+            burst_count = burst if burst != 0 else 0
         else:
             num_prompts, request_rate = tup
             burst_count = 0
@@ -382,4 +380,3 @@ if __name__ == "__main__":
         args.output = os.path.join(output_dir, f"{args.exp_result_prefix}-{num_prompts}-{request_rate}.exp")
         main(args)
         time.sleep(1)
-
