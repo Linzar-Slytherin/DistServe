@@ -66,7 +66,7 @@ class LLMEngine:
             cache_config: CacheConfig,
             context_sched_config: ContextStageSchedConfig,
             decoding_sched_config: DecodingStageSchedConfig,
-            num_context_engines: int = 2,
+            num_context_engines: int = 1,
             num_decoding_engines: int = 1,
     ):
         # 校验数量在 1～8 之间
@@ -162,7 +162,7 @@ class LLMEngine:
         self.request_lifetime_events[request_id].append(event)
 
     def _init_placement_groups(self) -> Optional[List[PlacementGroup]]:
-        workers_per_placement_group = 3
+        workers_per_placement_group = 2
         num_placement_groups = 1
         # Create placement groups
         placement_groups = []
@@ -201,16 +201,19 @@ class LLMEngine:
         self.engine_initialized = True
 
     async def _decode_dispatcher(self):
-        """从 context 阶段的 bridge_queue 中取出数据，
-           按轮询的方式分发到各个 decode 队列中。"""
         while True:
-            #logger.info("Starting LLMEngine event loops")
             step_output = await self.bridge_queue.get()
-            selecte_dengine = self.decoding_engines[self.count1 % len(self.decoding_engines)]
-            cengine_id = selecte_dengine.cengine_id
+        # 判断是否有可用的 decoding 引擎
+            if not self.decoding_engines:
+                logger.error("当前没有可用的 decoding 引擎，等待引擎恢复或添加。")
+            # 可选择将 step_output 放回 bridge_queue 或者其他处理方式
+                await self.bridge_queue.put(step_output)
+                await asyncio.sleep(1)  # 暂停一段时间再重试
+                continue
+            selected_dengine = self.decoding_engines[self.count1 % len(self.decoding_engines)]
+            cengine_id = selected_dengine.cengine_id
             await self.decode_queues[cengine_id].put(step_output)
             self.count1 += 1
-
     def abort_request(self, request_id: int):
         for engine in self.context_engines:
             engine.abort_request(request_id)
@@ -232,10 +235,26 @@ class LLMEngine:
         for engine in self.decoding_engines:
             handlers.extend(engine._remote_call_all_workers_async(func_name, *args))
         return handlers
-
     async def _start_my_event_loop(self):
-        pass
-
+        while True:
+        # 遍历所有 decode 队列的索引和队列对象
+            for cengine_id, decode_queue in enumerate(self.decode_queues):
+            # 检查当前 decoding_engines 中是否存在对应 cengine_id 的引擎
+                if not any(engine.cengine_id == cengine_id for engine in self.decoding_engines):
+                # 如果 decode 队列不为空，说明可能有遗留请求
+                    if not decode_queue.empty():
+                        logger.info(f"Decode queue {cengine_id} 没有对应的 decode engine，正在将队列中的请求放回 bridge_queue")
+                        pending_requests = []
+                        while not decode_queue.empty():
+                            try:
+                                req = decode_queue.get_nowait()
+                                pending_requests.append(req)
+                            except asyncio.QueueEmpty:
+                                break
+                    # 将取出的请求放回 bridge_queue
+                        for req in pending_requests:
+                            await self.bridge_queue.put(req)
+            await asyncio.sleep(30)  # 每秒检查一次，可根据需要调整间隔
     async def start_all_event_loops(self):
         logger.info("Starting LLMEngine event loops")
         assert self.engine_initialized, "Engine not initialized. Please call engine.initialize() before starting event loops."
@@ -255,6 +274,7 @@ class LLMEngine:
 
         # 添加 dispatcher 任务
         self.task_manager.add_task(self._decode_dispatcher(), name="decode_dispatcher")
+        self.task_manager.add_task(self._start_my_event_loop(), name="start_my_event_loop")
         # 等待所有任务（这通常是长期运行的任务）
         await asyncio.Event().wait()
 
